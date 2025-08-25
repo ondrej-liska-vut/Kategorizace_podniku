@@ -158,32 +158,3 @@ def core_test_GPT():
     )
 
     print("GPT navržená kategorie:", result)
-
-# def classify_company_by_ares_gpt(ico, categories):
-#     info = get_company_info_from_ares(ico)
-#     if info is None:
-#         return "N/A"
-#
-#     prompt = f"""Na základě následujících údajů o firmě se pokus klasifikovat firmu do jedné z následujících kategorií:
-# {', '.join(categories)}.
-#
-# Název firmy: {info['name']}
-# NACE (obor): {info['nace']}
-# Sídlo: {info['address']}
-#
-# Vrátíš pouze název jedné nejvhodnější kategorie.
-# """
-#
-#     try:
-#         completion = openai.ChatCompletion.create(
-#             model="gpt-4",  # nebo gpt-3.5-turbo
-#             messages=[
-#                 {"role": "system", "content": "Jsi expert na třídění firem podle oboru podnikání."},
-#                 {"role": "user", "content": prompt}
-#             ],
-#             temperature=0.2,
-#         )
-#         return completion.choices[0].message.content.strip()
-#     except Exception as e:
-#         print("Chyba LLM:", e)
-#         return "Chyba"

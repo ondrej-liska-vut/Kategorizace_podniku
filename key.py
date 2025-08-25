@@ -1,1 +1,3 @@
-serpapi_key = "19d168f362c6cfbbf19fe44c0165a3f7aba5e3cccf88e896a3c0fd9b482c368a"
+from keyPrivate import serpapi_key_private,open_ai_key_private
+serpapi_key = serpapi_key_private
+open_ai_key = open_ai_key_private
