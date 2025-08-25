@@ -14,14 +14,15 @@ from categories import categories
 client = OpenAI(api_key=key.open_ai_key)
 
 class Company:
-    def __init__(self, ico, name=None, address=None, nace=None, website=None, web_text=None, category=None):
+    def __init__(self, ico, name=None, address=None, nace=None, website=None, web_text=None, category_GPT=None , category_keyword=None):
         self.ico = ico
         self.name = name
         self.address = address
         self.nace = nace
         self.website = website
         self.web_text = web_text
-        self.category = category
+        self.category_keyword = category_keyword
+        self.category_GPT = category_GPT
 
     def to_dict(self):
         return {
@@ -30,7 +31,8 @@ class Company:
             "address": self.address,
             "nace": self.nace,
             "website": self.website,
-            "category": self.category
+            "category_keyword": self.category_keyword,
+            "category_GPT": self.category_GPT
         }
 
     @staticmethod
@@ -76,12 +78,27 @@ class Company:
         if not self.website:
             self.web_text = ""
             return
+
         try:
-            r = requests.get(self.website, timeout=5)
+            headers = {"User-Agent": "Mozilla/5.0"}
+            r = requests.get(self.website, headers=headers, timeout=5)
+
+            if r.status_code != 200 or not r.text.strip():
+                print(f"⚠️ Chybný nebo prázdný obsah z {self.website}")
+                self.web_text = ""
+                return
+
+            if "text/html" not in r.headers.get("Content-Type", ""):
+                print(f"⚠️ Nejedná se o HTML stránku: {self.website}")
+                self.web_text = ""
+                return
+
             doc = Document(r.text)
             soup = BeautifulSoup(doc.summary(), "html.parser")
             self.web_text = soup.get_text()
-        except:
+
+        except Exception as e:
+            print(f"❌ Chyba při zpracování stránky {self.website}:\n{e}")
             self.web_text = ""
 
     def classify_keyword(self):
@@ -94,7 +111,7 @@ class Company:
                 score += len(matches)
             score_table[category] = score
         best = max(score_table, key=score_table.get)
-        self.category = best if score_table[best] > 0 else "Neznámá"
+        self.category_keyword = best if score_table[best] > 0 else "Neznámá"
 
     def classify_gpt(self):
         system_message = "Jsi expert na třídění firem podle jejich oboru činnosti."
@@ -120,10 +137,10 @@ Odpověz pouze názvem jedné kategorie ze seznamu, bez dalších komentářů.
                 ],
                 temperature=0.2,
             )
-            self.category = response.choices[0].message.content.strip()
+            self.category_GPT = response.choices[0].message.content.strip()
         except Exception as e:
             print("Chyba při volání OpenAI:", e)
-            self.category = "Neurčeno"
+            self.category_GPT = "Neurčeno"
 
     def print_company(self):
         print("Název:", self.name)
@@ -131,7 +148,8 @@ Odpověz pouze názvem jedné kategorie ze seznamu, bez dalších komentářů.
         print("Adresa:", self.address)
         print("NACE:", self.nace)
         print("Web:", self.website)
-        print("Kategorie:", self.category)
+        print("Kategorie_keyword:", self.category_keyword)
+        print("Kategorie_GPT:", self.category_GPT)
         print("-" * 40)
 
 def process_companies(ico_list):
@@ -145,6 +163,7 @@ def process_companies(ico_list):
             firma.classify_keyword()
             firma.classify_gpt()
             results.append(firma.to_dict())
+            print(f"hotovo {ico}")
         except Exception as e:
             print(f"Chyba u IČO {ico}:", e)
     return results
