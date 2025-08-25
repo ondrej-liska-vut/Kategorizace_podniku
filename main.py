@@ -1,17 +1,20 @@
 import pandas as pd
-from core import enrich_company_info
+from core import enrich_company_info,core_test_GPT
 
-icos = ['00177041','29137624','45317054','25148290','26764652','45317054']  # přidej IČA
+# icos = ['00177041','29137624','45317054','25148290','26764652','45317054']  # přidej IČA
+#
+# results = []
+# for ico in icos:
+#     info = enrich_company_info(ico)
+#     if info:
+#         results.append(info)
+#
+# df = pd.DataFrame(results)
+# df.to_csv("vystup.csv", index=False)
+# print(df)
 
-results = []
-for ico in icos:
-    info = enrich_company_info(ico)
-    if info:
-        results.append(info)
+core_test_GPT()
 
-df = pd.DataFrame(results)
-df.to_csv("vystup.csv", index=False)
-print(df)
 
 
 # Škoda Auto a.s. – IČO: 00177041

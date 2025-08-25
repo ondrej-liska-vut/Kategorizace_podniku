@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup
 from readability import Document
 import re
 from serpapi import GoogleSearch
+
+import key
 from key import serpapi_key
 from categories import categories
 
@@ -110,6 +112,52 @@ def enrich_company_info(ico):
         info['category'] = "Nenalezeno"
 
     return info
+
+from openai import OpenAI
+
+client = OpenAI(api_key=key.open_ai_key)  # nebo zadej natvrdo jako api_key="sk-..."
+
+def classify_with_gpt(company_name, nace, address, categories):
+    system_message = "Jsi expert na třídění firem podle jejich oboru činnosti."
+
+    user_prompt = f"""
+Na základě následujících údajů o firmě vyber jednu nejvhodnější kategorii ze seznamu:
+
+Seznam kategorií:
+{", ".join(categories)}
+
+Název firmy: {company_name}
+NACE (obor): {nace}
+Adresa: {address}
+
+Odpověz pouze názvem jedné kategorie ze seznamu, bez dalších komentářů.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",  # nebo gpt-3.5-turbo
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.2,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print("Chyba při volání OpenAI:\n", e)
+        return "Neurčeno"
+
+def core_test_GPT():
+    ct = list(categories.keys())  # ze slovníku načti jen názvy kategorií
+
+    result = classify_with_gpt(
+        company_name="Komerční banka, a.s.",
+        nace="Bankovnictví",
+        address="Na Příkopě 969/33, Praha 1",
+        categories=ct
+    )
+
+    print("GPT navržená kategorie:", result)
 
 # def classify_company_by_ares_gpt(ico, categories):
 #     info = get_company_info_from_ares(ico)
