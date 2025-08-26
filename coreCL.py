@@ -5,24 +5,48 @@ import re
 import json
 from serpapi import GoogleSearch
 from openai import OpenAI
+import openai
 import pandas as pd
 
 import key
-from key import serpapi_key
 from categories import categories
+from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
+import cohere
 
 client = OpenAI(api_key=key.open_ai_key)
+co = cohere.Client(key.cohere_api_key)
+anthropic_client = Anthropic(api_key=key.anthropic_api_key)
+mistral_client = openai.OpenAI(api_key=key.together_api_key, base_url="https://api.together.xyz/v1")
+
 
 class Company:
-    def __init__(self, ico, name=None, address=None, nace=None, website=None, web_text=None, category_GPT=None , category_keyword=None):
+    def __init__(
+            self,
+            ico,
+            name=None,
+            address=None,
+            nace=None,
+            website=None,
+            web_text=None,
+            category_keyword=None,
+            category_gpt=None,
+            category_claude=None,
+            category_cohere=None,
+            category_mistral=None
+    ):
         self.ico = ico
         self.name = name
         self.address = address
         self.nace = nace
         self.website = website
         self.web_text = web_text
+
+        # Výstupy z klasifikací
         self.category_keyword = category_keyword
-        self.category_GPT = category_GPT
+        self.category_gpt = category_gpt
+        self.category_claude = category_claude
+        self.category_cohere = category_cohere
+        self.category_mistral = category_mistral
 
     def to_dict(self):
         return {
@@ -31,9 +55,27 @@ class Company:
             "address": self.address,
             "nace": self.nace,
             "website": self.website,
-            "category_keyword": self.category_keyword,
-            "category_GPT": self.category_GPT
+            "c_keyword": self.category_keyword,
+            "c_gpt": self.category_gpt,
+            "c_claude": self.category_claude,
+            "c_cohere": self.category_cohere,
+            "c_mistral": self.category_mistral
         }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            ico=data.get("ico"),
+            name=data.get("name"),
+            address=data.get("address"),
+            nace=data.get("nace"),
+            website=data.get("website"),
+            category_keyword=data.get("category_keyword"),
+            category_gpt=data.get("category_gpt"),
+            category_claude=data.get("category_claude"),
+            category_cohere=data.get("category_cohere"),
+            category_mistral=data.get("category_mistral")
+        )
 
     @staticmethod
     def from_dict(data):
@@ -63,7 +105,7 @@ class Company:
         params = {
             "q": f"{self.name} oficiální web",
             "engine": "google",
-            "api_key": serpapi_key
+            "api_key": key.serpapi_key
         }
         search = GoogleSearch(params)
         results = search.get_dict()
@@ -115,19 +157,8 @@ class Company:
 
     def classify_gpt(self):
         system_message = "Jsi expert na třídění firem podle jejich oboru činnosti."
-        prompt = f"""
-Na základě následujících údajů o firmě vyber jednu nejvhodnější kategorii ze seznamu:
+        prompt = generate_classification_prompt(self.name, self.nace, self.address, self.website, categories)
 
-Seznam kategorií:
-{', '.join(categories.keys())}
-
-Název firmy: {self.name}
-NACE (obor): {self.nace}
-WEB: {self.website}
-Adresa: {self.address}
-
-Odpověz pouze názvem jedné kategorie ze seznamu, bez dalších komentářů.
-"""
         try:
             response = client.chat.completions.create(
                 model="gpt-4o",
@@ -142,6 +173,53 @@ Odpověz pouze názvem jedné kategorie ze seznamu, bez dalších komentářů.
             print("Chyba při volání OpenAI:", e)
             self.category_GPT = "Neurčeno"
 
+    def classify_claude_2(self):
+        prompt = generate_classification_prompt(self.name, self.nace, self.address, self.website, categories)
+
+        try:
+            response = anthropic_client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=100,
+                temperature=0.2,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            self.category_claude = response.content[0].text.strip()
+        except Exception as e:
+            print("Chyba při volání Claude API:", e)
+            self.category_claude = "Neurčeno"
+
+    def classify_mistral(self):
+        prompt = generate_classification_prompt(self.name, self.nace, self.address, self.website, categories)
+
+        try:
+            response = mistral_client.chat.completions.create(
+                model="mistralai/Mistral-7B-Instruct-v0.2",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2,
+            )
+            self.category_mistral = response.choices[0].message.content.strip()
+        except Exception as e:
+            print("Chyba při volání Mistral API:", e)
+            self.category_mistral = "Neurčeno"
+
+    def classify_cohere(self):
+        prompt = generate_classification_prompt(self.name, self.nace, self.address, self.website, categories)
+
+        try:
+            response = co.chat(
+                model="command-r",
+                message=prompt,
+                temperature=0.3
+            )
+            self.category_cohere = response.text
+        except Exception as e:
+            print("Chyba při volání Cohere API:", e)
+            self.category_cohere = "Neurčeno"
+
     def print_company(self):
         print("Název:", self.name)
         print("IČO:", self.ico)
@@ -152,16 +230,34 @@ Odpověz pouze názvem jedné kategorie ze seznamu, bez dalších komentářů.
         print("Kategorie_GPT:", self.category_GPT)
         print("-" * 40)
 
+def generate_classification_prompt(company_name, nace, address, website, categories_dict):
+    return f"""
+Na základě následujících údajů o firmě vyber jednu nejvhodnější kategorii ze seznamu:
+
+Seznam kategorií:
+{', '.join(categories_dict.keys())}
+
+Název firmy: {company_name}
+NACE (obor): {nace}
+WEB: {website}
+Adresa: {address}
+
+Odpověz pouze názvem jedné kategorie ze seznamu, bez dalších komentářů.
+"""
+
 def process_companies(ico_list):
     results = []
     for ico in ico_list:
         firma = Company(ico)
         try:
             firma.fetch_from_ares()
-            firma.find_website()
-            firma.scrape_website_text()
-            firma.classify_keyword()
-            firma.classify_gpt()
+            #firma.find_website()
+            #firma.scrape_website_text()
+            #firma.classify_keyword()
+            #firma.classify_gpt()
+            #firma.classify_cohere()
+            firma.classify_claude_2()
+            #firma.classify_mistral()
             results.append(firma.to_dict())
             print(f"hotovo {ico}")
         except Exception as e:
@@ -170,16 +266,19 @@ def process_companies(ico_list):
 
 if __name__ == "__main__":
     ico_list = [
-        "71447687", "28750713", "17241201", "65424255", "11800721", "05484545", "03583058", "06154361",
-        "76098877", "27571556", "71465201", "03425002", "65119665", "75848856", "45981868", "22026975",
-        "21124833", "27301656", "05599954", "25913000", "73282138", "74099761", "63290006", "62607618",
-        "67797687", "21889848", "76266656", "49214403", "86708074", "01526006", "44867921", "62007157",
-        "73522546", "49521098", "87390361", "05392161", "62974980", "22674802", "44014422", "07293399",
-        "05419808", "05753937", "09375384", "13688642", "28407288", "04155599", "21932867", "00975818",
-        "74368125", "07032587"
+        "71447687", "28750713"
     ]
 
     data = process_companies(ico_list)
     df = pd.DataFrame(data)
     print(df)
     df.to_csv("companies_categorized.csv", index=False, encoding="utf-8")
+
+
+# , "17241201", "65424255", "11800721", "05484545", "03583058", "06154361",
+#         "76098877", "27571556", "71465201", "03425002", "65119665", "75848856", "45981868", "22026975",
+#         "21124833", "27301656", "05599954", "25913000", "73282138", "74099761", "63290006", "62607618",
+#         "67797687", "21889848", "76266656", "49214403", "86708074", "01526006", "44867921", "62007157",
+#         "73522546", "49521098", "87390361", "05392161", "62974980", "22674802", "44014422", "07293399",
+#         "05419808", "05753937", "09375384", "13688642", "28407288", "04155599", "21932867", "00975818",
+#         "74368125", "07032587"
