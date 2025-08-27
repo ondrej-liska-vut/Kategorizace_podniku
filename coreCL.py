@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+from pydantic.v1 import NoneStr
 from readability import Document
 import re
 import json
@@ -43,7 +44,7 @@ class Company:
 
         # Výstupy z klasifikací
         self.category_keyword = category_keyword
-        self.category_gpt = category_gpt
+        self.category_GPT = category_gpt
         self.category_claude = category_claude
         self.category_cohere = category_cohere
         self.category_mistral = category_mistral
@@ -56,7 +57,7 @@ class Company:
             "nace": self.nace,
             "website": self.website,
             "c_keyword": self.category_keyword,
-            "c_gpt": self.category_gpt,
+            "c_gpt": self.category_GPT,
             "c_claude": self.category_claude,
             "c_cohere": self.category_cohere,
             "c_mistral": self.category_mistral
@@ -99,7 +100,7 @@ class Company:
         data = r.json()
         self.name = data.get('obchodniJmeno')
         self.address = data.get('sidlo', {}).get('textovaAdresa')
-        self.nace = data.get('primarniNace', {}).get('nazev')
+        self.nace = data.get('primarniNace', {}).get('nazev') #TODO add option of more naces - zjistit proč nenačítá nic
 
     def find_website(self):
         params = {
@@ -230,8 +231,9 @@ class Company:
         print("Kategorie_GPT:", self.category_GPT)
         print("-" * 40)
 
-def generate_classification_prompt(company_name, nace, address, website, categories_dict):
-    return f"""
+def generate_classification_prompt(company_name, nace, address, website, categories_dict, web_text = None):
+    if web_text == None:
+        return f"""
 Na základě následujících údajů o firmě vyber jednu nejvhodnější kategorii ze seznamu:
 
 Seznam kategorií:
@@ -244,6 +246,26 @@ Adresa: {address}
 
 Odpověz pouze názvem jedné kategorie ze seznamu, bez dalších komentářů.
 """
+    else:
+        return f"""
+Na základě následujících údajů o firmě:
+
+Název firmy: {company_name}
+NACE (obor): {nace}
+WEB: {website}
+Adresa: {address}
+
+Vyber jednu nejvhodnější kategorii ze seznamu:
+Seznam kategorií:
+{', '.join(categories_dict.keys())}
+
+Odpověz pouze názvem jedné kategorie ze seznamu, bez dalších komentářů.
+
+Pro lepší určení použíj ještě informace z webové stránky:
+{web_text}
+
+Nevymýšlej si, pokud nevíš, tak to napiš.
+"""
 
 def process_companies(ico_list):
     results = []
@@ -251,13 +273,13 @@ def process_companies(ico_list):
         firma = Company(ico)
         try:
             firma.fetch_from_ares()
-            #firma.find_website()
-            #firma.scrape_website_text()
-            #firma.classify_keyword()
-            #firma.classify_gpt()
-            #firma.classify_cohere()
+            firma.find_website()
+            firma.scrape_website_text()
+            firma.classify_keyword()
+            firma.classify_gpt()
+            firma.classify_cohere()
             firma.classify_claude_2()
-            #firma.classify_mistral()
+            firma.classify_mistral()
             results.append(firma.to_dict())
             print(f"hotovo {ico}")
         except Exception as e:
@@ -265,14 +287,22 @@ def process_companies(ico_list):
     return results
 
 if __name__ == "__main__":
-    ico_list = [
-        "71447687", "28750713"
-    ]
+    # ico_list = [
+    #     "71447687", "28750713", "17241201", "65424255", "11800721", "05484545", "03583058", "06154361",
+    #     "76098877", "27571556", "71465201", "03425002", "65119665", "75848856", "45981868", "22026975",
+    #     "21124833", "27301656", "05599954", "25913000", "73282138", "74099761", "63290006", "62607618",
+    #     "67797687", "21889848", "76266656", "49214403", "86708074", "01526006", "44867921", "62007157",
+    #     "73522546", "49521098", "87390361", "05392161", "62974980", "22674802", "44014422", "07293399",
+    #     "05419808", "05753937", "09375384", "13688642", "28407288", "04155599", "21932867", "00975818",
+    #     "74368125", "07032587"
+    # ]
+
+    ico_list = ["28407288"]
 
     data = process_companies(ico_list)
     df = pd.DataFrame(data)
     print(df)
-    df.to_csv("companies_categorized.csv", index=False, encoding="utf-8")
+    df.to_csv("companies_categorized_search.csv", index=False, encoding="utf-8")
 
 
 # , "17241201", "65424255", "11800721", "05484545", "03583058", "06154361",
@@ -282,3 +312,5 @@ if __name__ == "__main__":
 #         "73522546", "49521098", "87390361", "05392161", "62974980", "22674802", "44014422", "07293399",
 #         "05419808", "05753937", "09375384", "13688642", "28407288", "04155599", "21932867", "00975818",
 #         "74368125", "07032587"
+
+#TODO ověřit co vyhodí GPT když se ho zeptám přes prohlížeč
