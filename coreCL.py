@@ -1,6 +1,5 @@
 import requests
 from bs4 import BeautifulSoup
-from pydantic.v1 import NoneStr
 from readability import Document
 import re
 import json
@@ -9,6 +8,7 @@ from openai import OpenAI
 import openai
 import pandas as pd
 
+import google.generativeai as genai
 import key
 from categories import categories
 from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
@@ -18,7 +18,7 @@ client = OpenAI(api_key=key.open_ai_key)
 co = cohere.Client(key.cohere_api_key)
 anthropic_client = Anthropic(api_key=key.anthropic_api_key)
 mistral_client = openai.OpenAI(api_key=key.together_api_key, base_url="https://api.together.xyz/v1")
-
+genai.configure(api_key=key.google_api_key)
 
 class Company:
     def __init__(
@@ -33,7 +33,8 @@ class Company:
             category_gpt=None,
             category_claude=None,
             category_cohere=None,
-            category_mistral=None
+            category_mistral=None,
+            category_per=None
     ):
         self.ico = ico
         self.name = name
@@ -48,6 +49,9 @@ class Company:
         self.category_claude = category_claude
         self.category_cohere = category_cohere
         self.category_mistral = category_mistral
+        self.category_per = category_per
+        self.per_reason = None
+        self.category_google = None
 
     def to_dict(self):
         return {
@@ -60,7 +64,10 @@ class Company:
             "c_gpt": self.category_GPT,
             "c_claude": self.category_claude,
             "c_cohere": self.category_cohere,
-            "c_mistral": self.category_mistral
+            "c_mistral": self.category_mistral,
+            "perplexity":self.category_per,
+            "perplexity_reasoning":self.per_reason,
+            "G-AI":self.category_google
         }
 
     @classmethod
@@ -75,7 +82,8 @@ class Company:
             category_gpt=data.get("category_gpt"),
             category_claude=data.get("category_claude"),
             category_cohere=data.get("category_cohere"),
-            category_mistral=data.get("category_mistral")
+            category_mistral=data.get("category_mistral"),
+            category_per = data.get("category_per")
         )
 
     @staticmethod
@@ -100,7 +108,8 @@ class Company:
         data = r.json()
         self.name = data.get('obchodniJmeno')
         self.address = data.get('sidlo', {}).get('textovaAdresa')
-        self.nace = data.get('primarniNace', {}).get('nazev') #TODO add option of more naces - zjistit proč nenačítá nic
+        self.nace = data.get('czNace')
+        t=4
 
     def find_website(self):
         params = {
@@ -231,6 +240,80 @@ class Company:
         print("Kategorie_GPT:", self.category_GPT)
         print("-" * 40)
 
+    def classify_with_perplexity(self):
+        api_key = key.perplexity_api_key
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        prompt = f"""
+Na základě těchto údajů o firmě určete jednu nejvhodnější kategorii z uvedeného seznamu:
+
+Seznam kategorií:
+{', '.join(categories.keys())}
+
+Název: {self.name}
+NACE: {self.nace}
+Adresa: {self.address}
+
+Odpověz pouze jednoslovněm názvem kategorie bez komentářů. Nveracej mi proces přemýšlení, pouze tu jednu kategorii bez dalšího komentáře!
+"""
+
+        data = {
+            "model": "sonar-deep-research",  # nebo "sonar-pro"
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "search": True,  # webové hledání povoleno
+            "stream": False
+        }
+
+        response = requests.post(
+            "https://api.perplexity.ai/chat/completions",
+            headers=headers,
+            json=data
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            answer = result["choices"][0]["message"]["content"].strip()
+            self.per_reason = answer
+            self.category_per = extract_last_nonempty_line(answer)
+        else:
+            print("Chyba z Perplexity:", response.status_code, response.text)
+            self.category_per = "Neurčeno"
+
+    import google.generativeai as genai
+
+    # Inicializace (někde ve tvém kódu po importu klíče)
+    genai.configure(api_key=key.google_api_key)  # klíč si dej do souboru key.py
+
+    # ...
+
+    def classify_google_ai(self):
+        prompt = generate_classification_prompt(self.name, self.nace, self.address, self.website, categories)
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt)
+            text = response.text.strip()
+            # Extrahujeme poslední neprázdný řádek
+            last_line = text.strip().splitlines()[-1]
+            self.category_google = last_line
+        except Exception as e:
+            print("Chyba při volání Google Gemini API:", e)
+            self.category_google = "Neurčeno"
+
+
+def extract_last_nonempty_line(text):
+    lines = text.strip().splitlines()
+    for line in reversed(lines):
+        if line.strip():
+            return line.strip()
+    return "Neurčeno"
+
+
 def generate_classification_prompt(company_name, nace, address, website, categories_dict, web_text = None):
     if web_text == None:
         return f"""
@@ -273,13 +356,15 @@ def process_companies(ico_list):
         firma = Company(ico)
         try:
             firma.fetch_from_ares()
-            firma.find_website()
-            firma.scrape_website_text()
-            firma.classify_keyword()
-            firma.classify_gpt()
-            firma.classify_cohere()
-            firma.classify_claude_2()
-            firma.classify_mistral()
+            # firma.find_website()
+            # firma.scrape_website_text()
+            # firma.classify_keyword()
+            # firma.classify_gpt()
+            # firma.classify_cohere()
+            # firma.classify_claude_2()
+            # firma.classify_mistral()
+            firma.classify_google_ai()
+            #firma.classify_with_perplexity()
             results.append(firma.to_dict())
             print(f"hotovo {ico}")
         except Exception as e:
@@ -287,23 +372,17 @@ def process_companies(ico_list):
     return results
 
 if __name__ == "__main__":
-    # ico_list = [
-    #     "71447687", "28750713", "17241201", "65424255", "11800721", "05484545", "03583058", "06154361",
-    #     "76098877", "27571556", "71465201", "03425002", "65119665", "75848856", "45981868", "22026975",
-    #     "21124833", "27301656", "05599954", "25913000", "73282138", "74099761", "63290006", "62607618",
-    #     "67797687", "21889848", "76266656", "49214403", "86708074", "01526006", "44867921", "62007157",
-    #     "73522546", "49521098", "87390361", "05392161", "62974980", "22674802", "44014422", "07293399",
-    #     "05419808", "05753937", "09375384", "13688642", "28407288", "04155599", "21932867", "00975818",
-    #     "74368125", "07032587"
-    # ]
+    ico_list = ["71447687", "28750713", "17241201", "65424255", "11800721", "05484545", "03583058", "06154361","76098877", "27571556", "71465201", "03425002", "65119665", "75848856", "45981868", "22026975","21124833", "27301656", "05599954", "25913000", "73282138", "74099761", "63290006", "62607618","67797687", "21889848", "76266656", "49214403", "86708074", "01526006", "44867921", "62007157","73522546", "49521098", "87390361", "05392161", "62974980", "22674802", "44014422", "07293399","05419808", "05753937", "09375384", "13688642", "28407288", "04155599", "21932867", "00975818","74368125", "07032587" ]
 
-    ico_list = ["28407288"]
+    #ico_list = ["28407288"]
 
     data = process_companies(ico_list)
     df = pd.DataFrame(data)
     print(df)
     df.to_csv("companies_categorized_search.csv", index=False, encoding="utf-8")
 
+
+# Můžeš teď kliknout na ▶ vedle této funkce
 
 # , "17241201", "65424255", "11800721", "05484545", "03583058", "06154361",
 #         "76098877", "27571556", "71465201", "03425002", "65119665", "75848856", "45981868", "22026975",

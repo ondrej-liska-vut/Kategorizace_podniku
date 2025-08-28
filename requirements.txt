@@ -12,3 +12,4 @@ beautifulsoup4>=4.12.2
 lxml>=4.9.3
 readability-lxml>=0.8.1
 pandas>=2.0.3
+google-generativeai

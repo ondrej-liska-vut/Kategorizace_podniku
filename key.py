@@ -4,3 +4,5 @@ open_ai_key = open_ai_key_private
 anthropic_api_key = anthropic_key_private
 together_api_key = together_api_key_private
 cohere_api_key = cohere_api_key_private
+perplexity_api_key = perplexity_api_key_private
+google_api_key = google_ai_studio_key_private
